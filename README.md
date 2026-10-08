@@ -12,22 +12,28 @@ Use Node 22.13+ and npm. On Windows ARM, use an x64 Node runtime: the Workers em
 
 1. `npm ci`
 2. Copy `.env.example` to `.env` and `.dev.vars`. Set a random `FEEDBACK_SECRET` of at least 32 characters. The two files must have matching application values.
-3. Use `ADMIN_EMAILS=seedy@sites.test` only for local development. The starter simulates that identity on loopback. Hosted sign-in uses real ChatGPT accounts and does not include the simulator.
+3. Use `ADMIN_EMAILS=seedy@sites.test` only for local development. This account verifies the owner for password setup/recovery; it does not grant dashboard access. The starter simulates that identity on loopback; the hosted service verifies the real owner.
 4. `npm run build`
 5. Apply each pending `drizzle/*.sql` migration once with `node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file <migration>`.
 6. `npm run dev`; open the printed URL (normally `http://127.0.0.1:5173`).
 
-Admin login is `/admin/login`. The public form contains no admin navigation. Sign-in uses the existing dispatch-owned provider, its persistent secure session, and a separate server-side administrator allowlist. No passwords or admin email allowlists are shipped to browser code. Logout clears the provider session. Unauthorized users are redirected; protected APIs reject access independently. Existing sessions lose authorization immediately when removed from the allowlist.
+Admin login is `/admin/login`: username `Admin` is case-insensitive; the password is case-sensitive. Set the password privately at `/admin/setup`, where the existing provider verifies the site owner. That owner verification is also the recovery mechanism; everyday dashboard sign-in requires only the username and password. The public form contains no admin navigation.
+
+Passwords must be 15–128 characters; symbols and numbers are optional. Obvious passwords such as a school keyword plus a year are rejected. The server stores only a salted scrypt hash (N=32768, r=8, p=3), in the private `admin_credentials` table. No raw passwords or hashes are sent to browser code, committed to the repository, or written to logs. Password hashes are deliberately expensive to verify, rather than plain SHA-256 hashes. HTTPS protects password transport; verify hosting TLS in production.
+
+Successful login creates an unpredictable, eight-hour server session. Only a SHA-256 digest of the random session token is stored in `admin_sessions`; that hash is suitable for a high-entropy token, not a human password. The cookie is HttpOnly, SameSite=Strict and Secure with the `__Host-` prefix on HTTPS. Only loopback development uses a non-Secure cookie. Logout deletes the session server-side, so replaying an old cookie fails. Resetting the password atomically increments its version and revokes all administrator sessions. Unauthorized pages redirect; API endpoints independently require a valid, unexpired session. Login attempts are limited to eight per 15 minutes per keyed network, before password hashing. Every auth write requires the exact same origin.
+
+This is one shared administrator account, as requested. Its actions are attributed internally to `Admin`; sharing its password means individual administrators cannot be distinguished. Use separate accounts if multiple-person attribution is needed later.
 
 ## Production configuration
 
 Runtime values are stored in Sites, never the hosting manifest or source:
 
-- `ADMIN_EMAILS`: comma-separated addresses of authorized ChatGPT accounts. An empty allowlist denies everyone. Only the site owner's address was configured for this build.
+- `ADMIN_EMAILS`: owner identity allowed to set/reset the admin password, verified by ChatGPT. An empty allowlist disables setup/recovery. Only the owner's address is configured. This variable never grants access to the dashboard by itself.
 - `FEEDBACK_SECRET`: cryptographically random secret for signed anti-spam challenges and keyed rate counters; mark as secret.
 - `SITE_ORIGIN`: exact production HTTPS origin for CSRF checks, without a trailing slash.
 
-`.openai/hosting.json` declares the `DB` binding. Sites provisions the production database and applies the committed migrations during deployment. The local test database is separate and is never packaged. Schema migrations must remain immutable once applied; generate a new migration for changes. Administrative access requires a ChatGPT account; adding school administrators later only requires updating the runtime allowlist, with no architecture rebuild.
+`.openai/hosting.json` declares the `DB` binding. Sites provisions the production database and applies committed migrations during deployment. The local test database, credential fixture and sessions are separate and never packaged. Keep applied migrations immutable; generate a new migration for changes. On the first hosted visit, the verified owner sets a password at `/admin/setup`. There is no default production password, and unauthenticated visitors cannot claim the account. Recovery requires the configured owner's verified account.
 
 ## Privacy and security boundaries
 
@@ -45,7 +51,7 @@ Urgent feedback includes a reminder to seek immediate help in emergencies; this 
 
 ## Verification
 
-`node tests/workflow.mjs` targets a running **local development** service with loopback mock auth. It creates explicitly labeled test records and exercises database persistence, login/session/logout, server authorization, cross-origin protection, input validation, identifying-field rejection, anti-spam token reuse, idempotent submission, status workflow, private notes, history attribution, mandatory resolution reasons, public updates, filters, analytics, stale-write conflicts, bulk archive/restore and reference-probing limits. It leaves test records archived. Do not run it against production.
+`node tests/workflow.mjs` refuses non-loopback origins. It verifies owner-only password setup/reset, exact password capitalization, case-insensitive username, protected session cookies, rejection of forged/revoked sessions, logout and brute-force throttling. It also exercises the complete submission/moderation/resolution workflow, private notes, public updates, filters, analytics, stale-write conflicts, archive/restore and reference-probing limits. Test records are labeled and archived; the local password fixture is never a hosted credential.
 
 `node node_modules/typescript/bin/tsc --noEmit` checks the source. `npm run build` builds the production Worker. Browser QA covers the form, receipt, copy button, status checker, admin management and 320 / 375 / 390 / 430 / 768 / 1024 / 1440 / 1920 widths. A browser WebMCP tool exposes public status checking and uses the same interface state and server protection; unsupported browsers continue normally.
 

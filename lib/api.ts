@@ -1,5 +1,6 @@
 import { z, ZodError } from "zod";
-import { AppError, body, challenge, database, json, rateLimit, requireAdmin, rowToSubmission, sameOrigin, sign, verifyChallenge } from "./server";
+import { AppError, body, challenge, database, json, rateLimit, requireAdmin, ownerIdentity, rowToSubmission, sameOrigin, sign, verifyChallenge } from "./server";
+import { login, logout, setPassword } from "./admin-auth";
 import { CATEGORIES, FLAGS, LOCATION_CATEGORIES, PRIORITIES, STATUSES, TERMINAL, changeSchema, feedbackSchema } from "./feedback";
 const refSchema=z.string().regex(/^AF-[A-Z2-9]{12}$/);
 const closedSql="('Resolved','Closed — No Further Action','Duplicate','Invalid / Insufficient Information')";
@@ -18,6 +19,21 @@ async function update(ref:string,input:unknown,actor:string){const v=changeSchem
 export async function handle(request:Request){try{
  const path=new URL(request.url).pathname.replace(/\/$/,"");const method=request.method;
  if(method!=="GET")sameOrigin(request);
+ if(path==="/api/auth/login"&&method==="POST"){
+  await rateLimit(request,"admin-login",8,900000);
+  const v=z.object({username:z.string().min(1).max(80),password:z.string().min(1).max(128)}).strict().parse(await body(request));
+  const response=json({signedIn:true});response.headers.set("Set-Cookie",await login(v.username,v.password));return response;
+ }
+ if(path==="/api/auth/logout"&&method==="POST"){
+  const response=json({signedOut:true});response.headers.set("Set-Cookie",await logout(request));return response;
+ }
+ if(path==="/api/auth/password"&&method==="POST"){
+  if(!await ownerIdentity())throw new AppError(403,"Only the verified site owner can set this password.");
+  await rateLimit(request,"admin-password",5,900000);
+  const v=z.object({password:z.string().min(15).max(128),confirmation:z.string().min(15).max(128)}).strict().parse(await body(request));
+  if(v.password!==v.confirmation)throw new AppError(400,"The passwords don’t match.");
+  await setPassword(v.password);const response=json({saved:true});response.headers.set("Set-Cookie",await logout(request));return response;
+ }
  if(path==="/api/feedback/challenge"&&method==="GET"){await rateLimit(request,"challenge",300);return json({challenge:await challenge()});}
  if(path==="/api/feedback"&&method==="POST"){
   const v=feedbackSchema.parse(await body(request));await verifyChallenge(v.challenge);await rateLimit(request,"submit-attempt",200);const db=database();

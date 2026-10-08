@@ -1,12 +1,14 @@
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { redirect } from "next/navigation";
+import { sessionIdentity } from "./admin-auth";
 import type { Submission } from "./feedback";
 export class AppError extends Error { constructor(public status:number,message:string,public code?:string){super(message);} }
 export function database(){if(!env.DB)throw new AppError(503,"The service is temporarily unavailable. Please try again.");return env.DB;}
-export async function adminIdentity(){const u=await getChatGPTUser();if(!u)return null;const allowed=(env.ADMIN_EMAILS||"").split(",").map(v=>v.trim().toLowerCase()).filter(Boolean);return allowed.includes(u.email.toLowerCase())?u:null;}
+export async function ownerIdentity(){const u=await getChatGPTUser();if(!u)return null;const allowed=(env.ADMIN_EMAILS||"").split(",").map(v=>v.trim().toLowerCase()).filter(Boolean);return allowed.includes(u.email.toLowerCase())?u:null;}
+export async function adminIdentity(){return sessionIdentity();}
 export async function requireAdminPage(){const u=await adminIdentity();if(!u)redirect("/admin/login");return u;}
-export async function requireAdmin(){const u=await adminIdentity();if(!u)throw new AppError(401,"Please sign in with an authorized administrator account.");return u;}
+export async function requireAdmin(){const u=await adminIdentity();if(!u)throw new AppError(401,"Please sign in as an administrator.");return u;}
 export function rowToSubmission(r:Record<string,unknown>):Submission {return {id:String(r.id),referenceCode:String(r.reference_code),category:String(r.category),subject:String(r.subject),message:String(r.message),priority:String(r.priority),location:r.location?String(r.location):null,status:String(r.status),flags:JSON.parse(String(r.flags)),publicUpdate:String(r.public_update),createdAt:String(r.created_at),updatedAt:String(r.updated_at),resolvedAt:r.resolved_at?String(r.resolved_at):null,archivedAt:r.archived_at?String(r.archived_at):null,version:Number(r.version)};}
 export function json(data:unknown,status=200){return Response.json(data,{status,headers:{"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});}
 export function sameOrigin(request:Request){const origin=request.headers.get("origin");const trusted=env.SITE_ORIGIN||new URL(request.url).origin;if(!origin||origin!==trusted)throw new AppError(403,"This request could not be verified. Refresh the page and try again.");if(request.headers.get("sec-fetch-site")==="cross-site")throw new AppError(403,"Request not allowed.");}

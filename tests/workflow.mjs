@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 const base=process.env.TEST_ORIGIN||"http://127.0.0.1:5173";
+assert.ok(["127.0.0.1","localhost"].includes(new URL(base).hostname),"Test fixtures are restricted to localhost");
 let cookie="";let assertions=0;
 const check=(v,m)=>{assert.ok(v,m);assertions++;};
 async function call(path,{method="GET",data,auth=false,origin=base}={}){const r=await fetch(base+path,{method,redirect:"manual",headers:{...(method!=="GET"?{"Origin":origin,"Content-Type":"application/json"}:{}),...(auth?{Cookie:cookie}:{})},...(data?{body:JSON.stringify(data)}:{})});const text=await r.text();let value;try{value=JSON.parse(text);}catch{value=text;}return {r,value};}
@@ -19,7 +20,25 @@ check((await must("/api/feedback",{method:"POST",data:input})).referenceCode===r
 check((await call("/api/feedback",{method:"POST",data:{...input,submissionKey:crypto.randomUUID()}})).r.status===400,"Challenge cannot be reused for another submission");
 const publicInitial=await must("/api/status",{method:"POST",data:{referenceCode:ref}});check(publicInitial.status==="New","New submission is persisted");
 check(Object.keys(publicInitial).sort().join(",")==="publicUpdate,referenceCode,status,updatedAt","Status API returns public allowlist only");
-const login=await fetch(base+"/signin-with-chatgpt?return_to=/admin/login",{redirect:"manual"});cookie=login.headers.get("set-cookie")?.split(";")[0]||"";check(cookie.length>0,"Existing sign-in provides persistent cookie");
+// This fixture is only used against a loopback emulator, never as a hosted password.
+check(["127.0.0.1","localhost"].includes(new URL(base).hostname),"Test fixtures are restricted to localhost");
+const password="ClassroomRiverMoon99";
+check((await call("/api/auth/password",{method:"POST",data:{password,confirmation:password}})).r.status===403,"Anonymous visitors cannot claim or reset admin access");
+const ownerLogin=await fetch(base+"/signin-with-chatgpt?return_to=/admin/setup",{redirect:"manual"});
+const ownerCookie=ownerLogin.headers.get("set-cookie")?.split(";")[0]||"";cookie=ownerCookie;
+check(cookie.length>0,"Owner verification supplies a bootstrap cookie");
+check((await call("/api/admin/summary",{auth:true})).r.status===401,"Owner identity alone no longer grants dashboard access");
+check((await call("/api/auth/password",{method:"POST",auth:true,data:{password,confirmation:password+"x"}})).r.status===400,"Password confirmation enforced on server");
+check((await call("/api/auth/password",{method:"POST",auth:true,data:{password:"School202620262026",confirmation:"School202620262026"}})).r.status===400,"Predictable school passwords rejected");
+await must("/api/auth/password",{method:"POST",auth:true,data:{password,confirmation:password}});
+check((await call("/api/auth/login",{method:"POST",data:{username:"Admin",password:password.toLowerCase()}})).r.status===401,"Password is case sensitive");
+check((await call("/api/auth/login",{method:"POST",data:{username:"student",password}})).r.status===401,"Wrong username rejected");
+const login=await call("/api/auth/login",{method:"POST",data:{username:"aDmIn",password}});
+check(login.r.ok,"Username is case insensitive");
+const sessionHeader=login.r.headers.get("set-cookie")||"";cookie=sessionHeader.split(";")[0];
+check(sessionHeader.includes("HttpOnly")&&sessionHeader.includes("SameSite=Strict")&&sessionHeader.includes("Max-Age=28800"),"Persistent session cookie has protection and bounded lifetime");
+const originalCookie=cookie;cookie="af_admin="+"0".repeat(64);
+check((await call("/api/admin/summary",{auth:true})).r.status===401,"Forged session token denied");cookie=originalCookie;
 check((await call("/admin/login",{auth:true})).r.headers.get("location")==="/admin/dashboard","Authorized login reaches dashboard");
 const list=await must("/api/admin/submissions?search="+encodeURIComponent(ref),{auth:true});check(list.items.length===1,"Admin search finds submission");
 check(list.items[0].message===input.message&&list.items[0].location==="Classroom","Full details persisted");
@@ -29,7 +48,7 @@ const fields={flags:["Needs Attention","Follow Up Required"],publicUpdate:"Maint
 await must(`/api/admin/submissions/${ref}`,{method:"PATCH",data:fields,auth:true});
 check((await call(`/api/admin/submissions/${ref}`,{method:"PATCH",data:fields,auth:true})).r.status===409,"Stale admin writes cannot overwrite newer changes");
 await must(`/api/admin/submissions/${ref}/notes`,{method:"POST",data:{body:"PRIVATE TEST NOTE: team to arrange repair after school."},auth:true});
-detail=await must(`/api/admin/submissions/${ref}`,{auth:true});check(detail.notes.length===1&&detail.notes[0].actor==="seedy@sites.test","Notes and admin attribution persisted separately");
+detail=await must(`/api/admin/submissions/${ref}`,{auth:true});check(detail.notes.length===1&&detail.notes[0].actor==="Admin","Notes and admin attribution persisted separately");
 check(detail.history.some(h=>h.event==="Internal note added"),"Note action appears in history");
 const publicMid=await must("/api/status",{method:"POST",data:{referenceCode:ref}});check(publicMid.publicUpdate===fields.publicUpdate,"Public update is visible");check(!JSON.stringify(publicMid).includes("PRIVATE"),"Internal notes never appear publicly");
 const resolve={...fields,status:"Resolved",flags:[],publicUpdate:"The door has been repaired.",reason:"Maintenance repaired the damaged door.",version:detail.submission.version};
@@ -47,6 +66,12 @@ check((await must("/api/admin/submissions?archive=true",{auth:true})).items.some
 check((await must("/api/status",{method:"POST",data:{referenceCode:ref}})).status==="Resolved","Archive retains public status");
 detail=await must(`/api/admin/submissions/${ref}`,{auth:true});await must("/api/admin/bulk",{method:"POST",auth:true,data:{items:[{referenceCode:ref,version:detail.submission.version}],action:"restore",reason:""}});
 detail=await must(`/api/admin/submissions/${ref}`,{auth:true});await must("/api/admin/bulk",{method:"POST",auth:true,data:{items:[{referenceCode:ref,version:detail.submission.version}],action:"archive",reason:""}});
-const logout=await fetch(base+"/signout-with-chatgpt?return_to=/admin/login",{headers:{Cookie:cookie},redirect:"manual"});check((logout.headers.get("set-cookie")||"").includes("Max-Age=0"),"Logout clears session");
+const beforeReset=cookie;cookie=ownerCookie;
+await must("/api/auth/password",{method:"POST",auth:true,data:{password,confirmation:password}});
+cookie=beforeReset;check((await call("/api/admin/summary",{auth:true})).r.status===401,"Owner password reset revokes existing sessions");
+const relogin=await call("/api/auth/login",{method:"POST",data:{username:"ADMIN",password}});check(relogin.r.ok,"Uppercase username also signs in");cookie=(relogin.r.headers.get("set-cookie")||"").split(";")[0];
+const logout=await call("/api/auth/logout",{method:"POST",auth:true,data:{}});check((logout.r.headers.get("set-cookie")||"").includes("Max-Age=0"),"Logout clears session");
+check((await call("/api/admin/summary",{auth:true})).r.status===401,"Replaying the logged-out cookie is rejected by the server");
+let loginLimited=false;for(let i=0;i<9;i++){const attempt=await call("/api/auth/login",{method:"POST",data:{username:"Admin",password:"incorrect-password"}});if(attempt.r.status===429){loginLimited=true;break;}}check(loginLimited,"Login guessing is rate limited");
 let limited=false;for(let i=0;i<42;i++){const r=await call("/api/status",{method:"POST",data:{referenceCode:"AF-ABCDEFGHJKLM"}});if(r.r.status===429){limited=true;break;}}check(limited,"Status probing is rate limited");
 fs.mkdirSync("outputs",{recursive:true});fs.writeFileSync("outputs/api-tests.json",JSON.stringify({passed:true,assertions,referenceCode:ref,checkedAt:new Date().toISOString()},null,2));console.log(JSON.stringify({passed:true,assertions,referenceCode:ref}));
