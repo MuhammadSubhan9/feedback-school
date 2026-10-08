@@ -1,5 +1,7 @@
 # Anonymous Student Feedback
 
+The Cloudflare Pages Free candidate is in [cloudflare-pages/README.md](cloudflare-pages/README.md) on branch `codex/cloudflare-pages`. The deployment described below is the existing Sites version; keep it running until the Cloudflare production flow has been tested.
+
 One public feedback page and a separate protected administrator workspace. No student accounts, council pages, profiles, events pages or news.
 
 ## Stack and storage

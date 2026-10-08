@@ -5,5 +5,7 @@ declare namespace Cloudflare {
     ADMIN_EMAILS?: string;
     FEEDBACK_SECRET?: string;
     SITE_ORIGIN?: string;
+    OWNER_SETUP_KEY?: string;
+    PASSWORD_PEPPER?: string;
   }
 }
