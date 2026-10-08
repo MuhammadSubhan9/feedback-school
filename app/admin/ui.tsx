@@ -1,0 +1,6 @@
+"use client";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TERMINAL } from "@/lib/feedback";
+export function Choice({value,onChange,options,label,id}:{value:string;onChange:(v:string)=>void;options:{value:string;label:string}[];label:string;id?:string}){return <Select value={value} onValueChange={onChange}><SelectTrigger id={id} aria-label={label} className="select-control"><SelectValue/></SelectTrigger><SelectContent>{options.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select>;}
+export function StatusBadge({status}:{status:string}){return <span className={`badge ${status==="Resolved"?"resolved":TERMINAL.includes(status)?"closed":["Awaiting Action","Referred / Escalated"].includes(status)?"attention":""}`}>{status}</span>;}
+export async function request<T = Record<string,unknown>>(url:string,options?:RequestInit){const r=await fetch(url,{cache:"no-store",...options,headers:{"Content-Type":"application/json",...options?.headers}});const d=await r.json() as {error?:string};if(!r.ok){if(r.status===401)window.location.href="/admin/login";throw new Error(d.error||"Something went wrong. Please try again.");}return d as T;}

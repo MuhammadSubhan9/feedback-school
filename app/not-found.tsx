@@ -1,0 +1,1 @@
+export default function NotFound(){return <main id="main" className="login-page"><section className="login-card"><h1>Page not found</h1><p>The page you’re looking for is unavailable.</p><a className="primary-btn" href="/">Open feedback form</a></section></main>;}
