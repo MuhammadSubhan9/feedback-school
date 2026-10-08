@@ -1,6 +1,8 @@
 # Cloudflare Pages edition
 
-This folder builds the same short student form and private moderation workflow for Cloudflare Pages Free and D1. It is separate from the existing Sites deployment. The current Git branch is a candidate until the deployed `pages.dev` flow and CPU usage are verified.
+This folder builds the short student form and private moderation workflow for Cloudflare Pages Free and D1. The Git-integrated production site is [feedback-school.pages.dev](https://feedback-school.pages.dev), deployed from `codex/cloudflare-pages`. The previous Sites deployment remains online.
+
+On 8–9 October 2026, the live site passed a full test: anonymous submission and reference lookup, administrator login, automatic review status, private note, action history, public update, resolution with reason, archive, logout, and direct-route protection. The production test submission was archived. Mobile and desktop layouts showed no horizontal overflow at 320, 375, 390, 430, 768, 1024, 1440, and 1920 pixels. Cloudflare's Pages CPU dashboard had not populated at the time of this test, so monitor it as real traffic arrives.
 
 ## Architecture
 
@@ -9,7 +11,7 @@ This folder builds the same short student form and private moderation workflow f
 - D1 holds submissions, internal notes, history, rate counters, administrator credential verifier and short-lived sessions.
 - The administrator username is `Admin` (case-insensitive). The password is case-sensitive. The browser derives a salted PBKDF2-SHA-256 verifier with 600,000 iterations; the API stores only an HMAC of that verifier using a separate server-only `PASSWORD_PEPPER`. No raw password or pepper goes in the Git repository or the browser bundle. The verifier is password-equivalent in transit and requires HTTPS.
 - A separate, random `OWNER_SETUP_KEY` is required to create or reset the administrator password. Keep it outside Git and outside student-accessible materials.
-- The local build and workflow passed under Wrangler's Pages simulator. This does **not** establish that Cloudflare Free's 10 ms production CPU limit is met; test the deployed flows and check CPU/errors before making the URL public.
+- The local build and workflow passed under Wrangler's Pages simulator, and the live workflow succeeded on Free. Cloudflare's 10 ms production CPU limit still needs ongoing observation because the dashboard had no data immediately after launch.
 
 ## Build and local check
 
